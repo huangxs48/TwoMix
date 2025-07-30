@@ -1,0 +1,153 @@
+//========================================================================================
+// Athena++ astrophysical MHD code
+// Copyright(C) 2014 James M. Stone <jmstone@princeton.edu> and other code contributors
+// Licensed under the 3-clause BSD License, see LICENSE file for details
+//========================================================================================
+//! \file kh.cpp
+//! \brief Problem generator for simplified test that two Gaussian function mixes
+//!
+
+// C headers
+
+// C++ headers
+#include <algorithm>  // min, max
+#include <cmath>      // log
+#include <cstring>    // strcmp()
+
+// Athena++ headers
+#include "../athena.hpp"
+#include "../athena_arrays.hpp"
+#include "../coordinates/coordinates.hpp"
+#include "../defs.hpp"
+#include "../eos/eos.hpp"
+#include "../field/field.hpp"
+#include "../hydro/hydro.hpp"
+#include "../mesh/mesh.hpp"
+#include "../parameter_input.hpp"
+#include "../scalars/scalars.hpp"
+#include "../utils/utils.hpp"
+
+namespace {
+  Real vflow1, vflow2;
+  Real dflow1, dflow2;
+  Real tflow1, tflow2;
+  Real sigma_flow1, sigma_flow2;
+  Real sigma_thresh1, sigma_thresh2;
+  Real x1_center_flow1, x1_center_flow2;
+  Real dfloor, tfloor;
+  //Real PassiveDyeEntropy(MeshBlock *pmb, int iout);
+} // namespace
+
+//----------------------------------------------------------------------------------------
+//! \fn void Mesh::InitUserMeshData(ParameterInput *pin)
+//  \brief Function to initialize problem-specific data in mesh class.  Can also be used
+//  to initialize variables which are global to (and therefore can be passed to) other
+//  functions in this file.  Called in Mesh constructor.
+
+void Mesh::InitUserMeshData(ParameterInput *pin) {
+
+  //set up the initial two flow
+
+  //velocity
+  vflow1 = pin->GetOrAddReal("problem", "vflow1", 0.1);
+  vflow2 = pin->GetOrAddReal("problem", "vflow2", -0.1);
+  //density
+  dflow1 = pin->GetOrAddReal("problem", "dflow1", 1.0);
+  dflow2 = pin->GetOrAddReal("problem", "dflow2", 1.0);
+  dfloor = pin->GetOrAddReal("problem", "dfloor", 1.0e-5); //floor density
+  //temperature
+  tflow1 = pin->GetOrAddReal("problem", "tflow1", 1.0);
+  tflow2 = pin->GetOrAddReal("problem", "tflow2", 1.0);
+  tfloor = pin->GetOrAddReal("problem", "tfloor", 1.0e-2); //floor temperature
+  
+  //center of Gaussian distribution
+  x1_center_flow1 = pin->GetOrAddReal("problem", "x1_center_flow1", -0.5);
+  x1_center_flow2 = pin->GetOrAddReal("problem", "x1_center_flow2", 0.5);
+  //wings of Gaussian distribution
+  sigma_flow1 = pin->GetOrAddReal("problem", "sigma_flow1", 0.1);
+  sigma_flow2 = pin->GetOrAddReal("problem", "sigma_flow1", 0.1);
+  sigma_thresh1 = pin->GetOrAddReal("problem", "sigma_thresh1", 3.0);
+  sigma_thresh2 = pin->GetOrAddReal("problem", "sigma_thresh2", 3.0);
+
+  return;
+}
+
+//----------------------------------------------------------------------------------------
+//! \fn void MeshBlock::ProblemGenerator(ParameterInput *pin)
+//  \brief Problem Generator to initialize two Gaussian density distribution.
+
+void MeshBlock::ProblemGenerator(ParameterInput *pin) {
+
+  //Real gm1 = peos->GetGamma() - 1.0;
+
+  // Read problem parameters
+
+  for (int k=ks; k<=ke; k++) {
+    for (int j=js; j<=je; j++) {
+      for (int i=is; i<=ie; i++) {
+
+	//density profile
+	//get current coordinate for the first Gaussian
+	Real x1_now = pcoord->x1v(i);
+	Real dis1_now = x1_now - x1_center_flow1;
+	Real dens1_now = dflow1 * exp(-SQR(dis1_now)/SQR(sigma_flow1)/2.0);
+	//Real d1 = 0.0;//passive scalar dye
+	//d1 markes the concentration of gas with gamma=5.0/3.0. In the crude treatment of EoS, we set flow1 gamma=5.0/3.0, let's assume all background gas has gamma=5.0/3.0 too
+	Real d1 = 1.0; 
+	
+	//get current coordinate for the second Gaussian
+	Real dis2_now = x1_now - x1_center_flow2;
+	Real dens2_now = dflow2 * exp(-SQR(dis2_now)/SQR(sigma_flow2)/2.0);
+	Real d2 = 0.0;//passive scalar dye
+	
+	//prepare scratch vars
+	Real dens_now = dfloor;
+	Real vel_now = 0.0;
+	Real t_now = tfloor;
+	
+	//assuming the density and velocity expands sigma_thresh*sigma, hardcoded for now
+	//assuming two initial Gaussian does not overlap
+	
+	//the first Gaussian
+	if (fabs(dis1_now) <= sigma_thresh1 * sigma_flow1){
+	  dens_now = dens1_now;
+	  vel_now = vflow1;
+	  t_now = tflow1;
+	  //d1 = 1.0;	    
+	}
+
+	//the second Gaussian
+	if (fabs(dis2_now) <= sigma_thresh2 * sigma_flow2){
+	  dens_now = dens2_now;
+	  vel_now = vflow2;
+	  t_now = tflow2;
+	  d1 = 0.0;//similar here, d2 marks the concentration of gas with gamma=4.0/3.0
+	  d2 = 1.0;
+	}
+	
+	phydro->u(IDN,k,j,i) = dens_now;
+	phydro->u(IM1,k,j,i) = dens_now * vel_now;
+	phydro->u(IM2,k,j,i) = 0.0;
+	phydro->u(IM3,k,j,i) = 0.0;
+
+	//initialize the dye
+	if (NSCALARS>0){
+	  pscalars->s(0,k,j,i) = dens_now * d1;
+	  pscalars->s(1,k,j,i) = dens_now * d2;
+	}
+	
+	// assuming simple adiabatic
+	if (NON_BAROTROPIC_EOS) {
+	  Real press_now = t_now * dens_now;
+	  //phydro->u(IEN,k,j,i) = (t_now * dens_now) / gm1;
+	  phydro->u(IEN,k,j,i) = peos->EgasFromRhoP(dens_now, press_now, k, j, i);
+	  phydro->u(IEN,k,j,i) += 0.5*(SQR(phydro->u(IM1,k,j,i)) + SQR(phydro->u(IM2,k,j,i)) + SQR(phydro->u(IM3,k,j,i)))/phydro->u(IDN,k,j,i);
+	}
+      }
+    }
+  }
+   
+  return;
+}
+
+

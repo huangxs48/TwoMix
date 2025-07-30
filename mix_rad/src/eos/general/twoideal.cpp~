@@ -1,0 +1,63 @@
+//========================================================================================
+// Athena++ astrophysical MHD code
+// Copyright(C) 2014 James M. Stone <jmstone@princeton.edu> and other code contributors
+// Licensed under the 3-clause BSD License, see LICENSE file for details
+//======================================================================================
+//! \file ideal.cpp
+//! \brief implements ideal EOS in general EOS framework, mostly for debuging
+//======================================================================================
+
+// C headers
+
+// C++ headers
+
+// Athena++ headers
+#include "../eos.hpp"
+#include "../../scalars/scalars.hpp"
+#include "../../mesh/mesh.hpp"
+#include "../../hydro/hydro.hpp"
+
+//----------------------------------------------------------------------------------------
+//! \fn Real EquationOfState::PresFromRhoEg(Real rho, Real egas)
+//! \brief Return gas pressure
+Real EquationOfState::PresFromRhoEg(Real rho, Real egas, int k, int j, int i) {
+  gamma_ = GetEffectiveGamma(k,j,i);
+  return (gamma_ - 1.) * egas;
+}
+
+//----------------------------------------------------------------------------------------
+//! \fn Real EquationOfState::EgasFromRhoP(Real rho, Real pres)
+//! \brief Return internal energy density
+Real EquationOfState::EgasFromRhoP(Real rho, Real pres, int k, int j, int i) {
+  gamma_ = GetEffectiveGamma(k,j,i);
+  return pres / (gamma_ - 1.);
+}
+
+//----------------------------------------------------------------------------------------
+//! \fn Real EquationOfState::AsqFromRhoP(Real rho, Real pres)
+//! \brief Return adiabatic sound speed squared
+Real EquationOfState::AsqFromRhoP(Real rho, Real pres, int k, int j, int i) {
+  return gamma_ * pres / rho;
+}
+
+//----------------------------------------------------------------------------------------
+//! \fn void EquationOfState::InitEosConstants(ParameterInput* pin)
+//! \brief Initialize constants for EOS
+void EquationOfState::InitEosConstants(ParameterInput *pin) {
+  return;
+}
+
+//----------------------------------------------------------------------------------------
+//! \fn Real EquationOfState::GetEffectiveGamma(int k, int j, int i)
+//! \brief Return effective Gamma of two mixed flow
+Real EquationOfState::GetEffectiveGamma(int k, int j, int i) {
+
+  Real gamma_flow1 = 5.0/3.0; //hard coded for now
+  Real gamma_flow2 = 4.0/3.0; //hard coded for now
+  //Real gamma_effective = gamma_flow1 * pmy_block_->pscalars->s(0,k,j,i) + gamma_flow2 * pmy_block_->pscalars->s(1,k,j,i);
+  Real gamma_effective = gamma_flow1 * pmy_block_->pscalars->s(0,k,j,i) + gamma_flow2 * (1.0 -pmy_block_->pscalars->s(0,k,j,i));
+  // if (k==pmy_block_->ks && j==pmy_block_->js && i==pmy_block_->is+2){
+  //   std::cout<<"s0: "<< pmy_block_->pscalars->s(0,k,j,i) <<" s1: "<<  pmy_block_->pscalars->s(1,k,j,i)<<" gamma: "<<gamma_effective<<__FILE__<<":"<<__LINE__<<std::endl;
+  // }
+  return gamma_effective;
+}
